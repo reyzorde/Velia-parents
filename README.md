@@ -1,10 +1,12 @@
-# Setup
+# Velia Parents
+
+Email + password login only (no phone, no public signup).
 
 ```bash
 npm install
 cp .env.example .env
-# fill VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY locally only
+# fill VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
 npm run dev
 ```
 
-Do not commit `.env`. Secrets stay local / Netlify env.
+Never commit `.env`.
