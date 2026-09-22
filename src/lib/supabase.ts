@@ -9,7 +9,15 @@ if (!url || !key) {
 
 export const supabase = createClient(
   url || 'https://placeholder.supabase.co',
-  key || 'placeholder-key'
+  key || 'placeholder-key',
+  {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: false,
+      storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+    },
+  }
 );
 
 export const isConfigured = Boolean(url && key && !url.includes('placeholder'));
