@@ -1,24 +1,34 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import {
+  CalendarCheck,
+  CreditCard,
+  Home,
+  Loader2,
+  LogOut,
+  MessageSquare,
+  Moon,
+  Sun,
+  Trophy,
+} from 'lucide-react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { supabase, isConfigured } from './lib/supabase';
+import { isConfigured, supabase } from './lib/supabase';
 
 type Session = {
-  phone: string;
-  full_name: string;
+  parent_name: string;
+  parent_phone: string;
   student_id: string;
+  student_name: string;
 };
 
-type Student = {
-  id: string;
-  full_name: string;
-  phone: string | null;
-  status: string;
-  center_id: string;
-};
+type Tab = 'home' | 'attendance' | 'payments' | 'messages' | 'results';
+
+function normalizePhone(raw: string) {
+  return raw.replace(/[^\d+]/g, '');
+}
 
 function loadSession(): Session | null {
   try {
-    const raw = localStorage.getItem('velia_parent_session');
+    const raw = localStorage.getItem('velia_parent_session_v2');
     return raw ? (JSON.parse(raw) as Session) : null;
   } catch {
     return null;
@@ -26,18 +36,19 @@ function loadSession(): Session | null {
 }
 
 function saveSession(s: Session) {
-  localStorage.setItem('velia_parent_session', JSON.stringify(s));
+  localStorage.setItem('velia_parent_session_v2', JSON.stringify(s));
 }
 
 function clearSession() {
-  localStorage.removeItem('velia_parent_session');
+  localStorage.removeItem('velia_parent_session_v2');
 }
 
 function Login() {
   const nav = useNavigate();
-  const [fullName, setFullName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [studentId, setStudentId] = useState('');
+  const [parentName, setParentName] = useState('');
+  const [parentPhone, setParentPhone] = useState('');
+  const [studentName, setStudentName] = useState('');
+  const [studentPhone, setStudentPhone] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -45,42 +56,40 @@ function Login() {
     e.preventDefault();
     setError('');
     if (!isConfigured) {
-      setError('.env da VITE_SUPABASE_URL va VITE_SUPABASE_ANON_KEY yozing, serverni qayta ishga tushiring.');
+      setError('.env faylida VITE_SUPABASE_URL va VITE_SUPABASE_ANON_KEY yozing, keyin npm run dev ni qayta ishga tushiring.');
       return;
     }
     setBusy(true);
     try {
-      const id = studentId.trim();
-      const { data: student, error: sErr } = await supabase
+      const phone = normalizePhone(studentPhone);
+      const name = studentName.trim();
+      if (!phone || !name) throw new Error('Oquvchi ismi va telefonini kiriting.');
+
+      const { data: rows, error: qErr } = await supabase
         .from('students')
-        .select('id, full_name, status, center_id')
-        .eq('id', id)
-        .maybeSingle();
+        .select('id, full_name, phone, status')
+        .eq('status', 'active')
+        .ilike('full_name', name)
+        .limit(20);
+      if (qErr) throw new Error(qErr.message);
 
-      if (sErr || !student) {
-        throw new Error("O‘quvchi topilmadi. Markaz egasidan to‘g‘ri o‘quvchi ID oling.");
-      }
-      if (student.status !== 'active') {
-        throw new Error('Bu o‘quvchi nofaol holatda.');
-      }
+      const digits = phone.replace(/\D/g, '');
+      const tail = digits.slice(-9);
+      const matched = (rows || []).filter((s) => {
+        const sp = (s.phone || '').replace(/\D/g, '');
+        return sp.endsWith(tail) || sp.includes(tail) || (sp && tail.endsWith(sp.slice(-9)));
+      });
 
-      // optional parent_links upsert (ignore failure if table missing)
-      try {
-        await supabase.from('parent_links').upsert(
-          {
-            parent_user_id: null,
-            student_id: student.id,
-          },
-          { onConflict: 'student_id', ignoreDuplicates: true }
-        );
-      } catch {
-        /* ignore */
+      if (!matched.length) {
+        throw new Error('Oquvchi topilmadi. Markazdagi ism va telefon togri ekanini tekshiring.');
       }
+      const student = matched[0];
 
       saveSession({
-        phone: phone.trim(),
-        full_name: fullName.trim() || 'Ota-ona',
+        parent_name: parentName.trim() || 'Ota-ona',
+        parent_phone: normalizePhone(parentPhone),
         student_id: student.id,
+        student_name: student.full_name,
       });
       nav('/');
     } catch (err) {
@@ -91,49 +100,51 @@ function Login() {
   };
 
   return (
-    <div className="page">
-      <div className="topbar">
-        <div className="brand">Velia Parents</div>
+    <div className="auth-page">
+      <div className="auth-brand">
+        <div className="auth-brand__mark">V</div>
+        <div className="auth-brand__name">Velia Parents</div>
       </div>
-      <div className="card">
-        <h2>Farzandingizni kuzating</h2>
-        <p className="muted">
-          Kirish uchun markaz bergan <strong>o‘quvchi ID</strong> kerak. Yangi hisob ochilmaydi — faqat Velia dagi o‘quvchi.
-        </p>
-        <form onSubmit={submit}>
-          <label className="label">Ismingiz</label>
-          <input className="input" value={fullName} onChange={(e) => setFullName(e.target.value)} required />
-          <label className="label">Telefon</label>
-          <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} required placeholder="+998..." />
-          <label className="label">O‘quvchi ID (UUID)</label>
-          <input
-            className="input"
-            value={studentId}
-            onChange={(e) => setStudentId(e.target.value)}
-            required
-            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-          />
-          {error && <p className="error">{error}</p>}
-          <button className="btn" type="submit" disabled={busy} style={{ marginTop: 16, width: '100%' }}>
-            {busy ? 'Tekshirilmoqda...' : 'Kirish'}
-          </button>
-        </form>
-      </div>
+      <h1 className="auth-title">Farzandingizni kuzating</h1>
+      <p className="auth-sub">
+        Kirish uchun oquvchining <strong>toliq ismi</strong> va <strong>telefon raqami</strong> kerak. UUID kiritish shart emas.
+      </p>
+      <form onSubmit={submit}>
+        {error && <div className="error-box">{error}</div>}
+        <div className="field">
+          <label>Sizning ismingiz</label>
+          <input value={parentName} onChange={(e) => setParentName(e.target.value)} required autoComplete="name" />
+        </div>
+        <div className="field">
+          <label>Sizning telefoningiz</label>
+          <input value={parentPhone} onChange={(e) => setParentPhone(e.target.value)} required inputMode="tel" placeholder="+998 90 123 45 67" autoComplete="tel" />
+        </div>
+        <div className="field">
+          <label>Oquvchi ismi (markazdagi)</label>
+          <input value={studentName} onChange={(e) => setStudentName(e.target.value)} required autoComplete="off" />
+        </div>
+        <div className="field">
+          <label>Oquvchi telefoni</label>
+          <input value={studentPhone} onChange={(e) => setStudentPhone(e.target.value)} required inputMode="tel" placeholder="+998..." autoComplete="off" />
+        </div>
+        <button className="btn btn-primary" type="submit" disabled={busy} style={{ marginTop: 8 }}>
+          {busy ? (<><Loader2 size={18} className="spin" /> Tekshirilmoqda</>) : 'Kirish'}
+        </button>
+      </form>
     </div>
   );
 }
 
-function Home() {
+function HomeApp() {
   const nav = useNavigate();
   const session = useMemo(() => loadSession(), []);
-  const [student, setStudent] = useState<Student | null>(null);
-  const [tab, setTab] = useState<'overview' | 'attendance' | 'payments' | 'messages' | 'results'>('overview');
+  const [tab, setTab] = useState<Tab>('home');
+  const [theme, setTheme] = useState(() => localStorage.getItem('velia_parents_theme') || 'light');
+  const [loading, setLoading] = useState(true);
   const [attendance, setAttendance] = useState<Array<{ date: string; status: string }>>([]);
   const [payments, setPayments] = useState<Array<{ amount: number; payment_date: string; note: string | null }>>([]);
-  const [messages, setMessages] = useState<Array<{ content: string; title: string | null; created_at: string; message_type: string }>>([]);
-  const [results, setResults] = useState<Array<{ score: number | null; max_score: number | null; percentage: number | null; completed_at: string | null; test_id: string }>>([]);
-  const [loading, setLoading] = useState(true);
-  const [theme, setTheme] = useState(() => localStorage.getItem('velia_parents_theme') || 'light');
+  const [messages, setMessages] = useState<Array<{ content: string; title: string | null; created_at: string }>>([]);
+  const [results, setResults] = useState<Array<{ score: number | null; max_score: number | null; percentage: number | null; completed_at: string | null }>>([]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -148,188 +159,154 @@ function Home() {
     void (async () => {
       setLoading(true);
       const sid = session.student_id;
-      const { data: st } = await supabase.from('students').select('*').eq('id', sid).maybeSingle();
-      setStudent(st as Student | null);
-
       const [att, pay, msg, res] = await Promise.all([
-        supabase.from('attendance').select('date, status').eq('student_id', sid).order('date', { ascending: false }).limit(30),
-        supabase
-          .from('payments')
-          .select('amount, payment_date, note')
-          .eq('student_id', sid)
-          .order('payment_date', { ascending: false })
-          .limit(30),
-        supabase
-          .from('student_messages')
-          .select('content, title, created_at, message_type')
-          .eq('student_id', sid)
-          .order('created_at', { ascending: false })
-          .limit(30),
-        supabase
-          .from('mock_attempts')
-          .select('score, max_score, percentage, completed_at, test_id')
-          .eq('student_id', sid)
-          .order('completed_at', { ascending: false })
-          .limit(20),
+        supabase.from('attendance').select('date, status').eq('student_id', sid).order('date', { ascending: false }).limit(40),
+        supabase.from('student_payments').select('amount, payment_date, note').eq('student_id', sid).order('payment_date', { ascending: false }).limit(40),
+        supabase.from('student_messages').select('content, title, created_at').eq('student_id', sid).order('created_at', { ascending: false }).limit(40),
+        supabase.from('mock_attempts').select('score, max_score, percentage, completed_at').eq('student_id', sid).order('completed_at', { ascending: false }).limit(20),
       ]);
-
-      // payments view might fail — try student_payments
       if (pay.error) {
-        const alt = await supabase
-          .from('student_payments')
-          .select('amount, payment_date, note')
-          .eq('student_id', sid)
-          .order('payment_date', { ascending: false })
-          .limit(30);
-        setPayments((alt.data as typeof payments) || []);
+        const alt = await supabase.from('payments').select('amount, payment_date, note').eq('student_id', sid).order('payment_date', { ascending: false }).limit(40);
+        setPayments(alt.data || []);
       } else {
-        setPayments((pay.data as typeof payments) || []);
+        setPayments(pay.data || []);
       }
-
       setAttendance(att.data || []);
       setMessages(msg.data || []);
-      setResults((res.data as typeof results) || []);
+      setResults(res.data || []);
       setLoading(false);
     })();
   }, [session, nav]);
 
   if (!session) return null;
 
+  const tabs: Array<{ id: Tab; label: string; icon: typeof Home }> = [
+    { id: 'home', label: 'Asosiy', icon: Home },
+    { id: 'attendance', label: 'Davomat', icon: CalendarCheck },
+    { id: 'payments', label: "Tolov", icon: CreditCard },
+    { id: 'messages', label: 'Xabar', icon: MessageSquare },
+    { id: 'results', label: 'Test', icon: Trophy },
+  ];
+
+  const presentCount = attendance.filter((a) => a.status === 'present').length;
+
   return (
-    <div className="page">
-      <div className="topbar">
-        <div>
-          <div className="brand">Velia Parents</div>
-          <div className="muted">
-            {session.full_name} · {session.phone}
-          </div>
+    <div className="app-shell">
+      <aside className="side-nav">
+        <div className="auth-brand" style={{ marginBottom: 16 }}>
+          <div className="auth-brand__mark">V</div>
+          <div className="auth-brand__name">Parents</div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn secondary" type="button" onClick={() => setTheme((t) => (t === 'light' ? 'dark' : 'light'))}>
-            {theme === 'light' ? 'Tungi' : 'Kunduzgi'}
-          </button>
-          <button
-            className="btn secondary"
-            type="button"
-            onClick={() => {
-              clearSession();
-              nav('/login');
-            }}
-          >
-            Chiqish
-          </button>
-        </div>
-      </div>
-
-      <div className="card">
-        <h2>{student?.full_name || 'O‘quvchi'}</h2>
-        <p className="muted" style={{ margin: 0 }}>
-          ID: <code style={{ fontSize: 12 }}>{session.student_id}</code>
-          {student?.status === 'active' ? (
-            <span className="badge ok" style={{ marginLeft: 8 }}>
-              Faol
-            </span>
-          ) : (
-            <span className="badge warn" style={{ marginLeft: 8 }}>
-              {student?.status || '...'}
-            </span>
-          )}
-        </p>
-      </div>
-
-      <div className="tabs">
-        {(
-          [
-            ['overview', 'Umumiy'],
-            ['attendance', 'Davomat'],
-            ['payments', "To‘lovlar"],
-            ['messages', 'Xabarlar'],
-            ['results', 'Test natijalari'],
-          ] as const
-        ).map(([id, label]) => (
-          <button key={id} type="button" className={`tab ${tab === id ? 'active' : ''}`} onClick={() => setTab(id)}>
-            {label}
+        {tabs.map((t) => (
+          <button key={t.id} type="button" className={tab === t.id ? 'active' : ''} onClick={() => setTab(t.id)}>
+            <t.icon size={18} /> {t.label}
           </button>
         ))}
-      </div>
+        <div style={{ flex: 1 }} />
+        <button type="button" onClick={() => setTheme((x) => (x === 'light' ? 'dark' : 'light'))}>
+          {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />} Rejim
+        </button>
+        <button type="button" onClick={() => { clearSession(); nav('/login'); }}>
+          <LogOut size={18} /> Chiqish
+        </button>
+      </aside>
 
-      {loading ? (
-        <div className="card empty">Yuklanmoqda...</div>
-      ) : tab === 'overview' ? (
-        <div className="card">
-          <h2>Qisqa ko‘rinish</h2>
-          <div className="row">
-            <span className="muted">So‘nggi davomat</span>
-            <strong>{attendance[0] ? `${attendance[0].date} · ${attendance[0].status}` : '—'}</strong>
+      <div>
+        <header className="app-header">
+          <div>
+            <h1>{session.student_name}</h1>
+            <div className="sub">{session.parent_name} · {session.parent_phone}</div>
           </div>
-          <div className="row">
-            <span className="muted">So‘nggi to‘lov</span>
-            <strong>
-              {payments[0]
-                ? `${Number(payments[0].amount).toLocaleString()} so‘m · ${payments[0].payment_date}`
-                : '—'}
-            </strong>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={() => setTheme((x) => (x === 'light' ? 'dark' : 'light'))} aria-label="Theme">
+              {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
+            </button>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={() => { clearSession(); nav('/login'); }} aria-label="Chiqish">
+              <LogOut size={18} />
+            </button>
           </div>
-          <div className="row">
-            <span className="muted">Yangi xabarlar</span>
-            <strong>{messages.length}</strong>
-          </div>
-          <div className="row">
-            <span className="muted">Mock natijalar</span>
-            <strong>{results.length}</strong>
-          </div>
-        </div>
-      ) : tab === 'attendance' ? (
-        <div className="card">
-          <h2>Davomat</h2>
-          {attendance.length === 0 && <div className="empty">Ma’lumot yo‘q</div>}
-          {attendance.map((a, i) => (
-            <div className="row" key={i}>
-              <span>{a.date}</span>
-              <span className={`badge ${a.status === 'present' ? 'ok' : a.status === 'absent' ? 'danger' : 'warn'}`}>
-                {a.status}
-              </span>
+        </header>
+
+        <main className="app-main">
+          {loading ? (
+            <div className="card empty"><Loader2 className="spin" size={24} /> Yuklanmoqda...</div>
+          ) : tab === 'home' ? (
+            <>
+              <div className="card hero-card">
+                <div className="muted">Farzandingiz</div>
+                <div className="hero-name">{session.student_name}</div>
+                <div className="muted">Velia orqali kuzatuv</div>
+              </div>
+              <div className="stat-grid">
+                <div className="stat"><div className="label">Davomat</div><div className="value">{presentCount}/{attendance.length || 0}</div></div>
+                <div className="stat"><div className="label">Tolovlar</div><div className="value">{payments.length}</div></div>
+                <div className="stat"><div className="label">Xabarlar</div><div className="value">{messages.length}</div></div>
+                <div className="stat"><div className="label">Testlar</div><div className="value">{results.length}</div></div>
+              </div>
+              <div className="card">
+                <h2>Tezkor holat</h2>
+                <div className="row"><span className="muted">Songgi davomat</span><strong>{attendance[0] ? attendance[0].date : '—'}</strong></div>
+                <div className="row"><span className="muted">Songgi tolov</span><strong>{payments[0] ? `${Number(payments[0].amount).toLocaleString()} som` : '—'}</strong></div>
+              </div>
+            </>
+          ) : tab === 'attendance' ? (
+            <div className="card">
+              <h2>Davomat</h2>
+              {!attendance.length && <div className="empty">Hali yozuv yoq</div>}
+              {attendance.map((a, i) => (
+                <div className="row" key={i}>
+                  <span>{a.date}</span>
+                  <span className={`badge ${a.status === 'present' ? 'ok' : a.status === 'absent' ? 'danger' : 'warn'}`}>{a.status}</span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      ) : tab === 'payments' ? (
-        <div className="card">
-          <h2>To‘lovlar</h2>
-          {payments.length === 0 && <div className="empty">Ma’lumot yo‘q</div>}
-          {payments.map((p, i) => (
-            <div className="row" key={i}>
-              <span>{p.payment_date}</span>
-              <strong>{Number(p.amount).toLocaleString()} so‘m</strong>
+          ) : tab === 'payments' ? (
+            <div className="card">
+              <h2>Tolovlar</h2>
+              {!payments.length && <div className="empty">Hali tolov yoq</div>}
+              {payments.map((p, i) => (
+                <div className="row" key={i}>
+                  <div><div>{p.payment_date}</div>{p.note && <div className="muted">{p.note}</div>}</div>
+                  <strong>{Number(p.amount).toLocaleString()} som</strong>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      ) : tab === 'messages' ? (
-        <div className="card">
-          <h2>Xabarlar (ilova ichida)</h2>
-          {messages.length === 0 && <div className="empty">Hali xabar yo‘q</div>}
-          {messages.map((m, i) => (
-            <div key={i} style={{ borderTop: i ? '1px solid var(--border)' : undefined, paddingTop: 10, marginTop: i ? 10 : 0 }}>
-              <div className="muted">{new Date(m.created_at).toLocaleString()}</div>
-              {m.title && <strong>{m.title}</strong>}
-              <div>{m.content}</div>
+          ) : tab === 'messages' ? (
+            <div className="card">
+              <h2>Xabarlar</h2>
+              {!messages.length && <div className="empty">Xabar yoq</div>}
+              {messages.map((m, i) => (
+                <div className="msg-item" key={i}>
+                  <div className="muted">{new Date(m.created_at).toLocaleString()}</div>
+                  {m.title && <strong>{m.title}</strong>}
+                  <div>{m.content}</div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      ) : (
-        <div className="card">
-          <h2>Mock test natijalari</h2>
-          {results.length === 0 && <div className="empty">Natija yo‘q</div>}
-          {results.map((r, i) => (
-            <div className="row" key={i}>
-              <span className="muted">{r.completed_at ? new Date(r.completed_at).toLocaleDateString() : '—'}</span>
-              <strong>
-                {r.score ?? 0} / {r.max_score ?? 0}
-                {r.percentage != null ? ` (${r.percentage}%)` : ''}
-              </strong>
+          ) : (
+            <div className="card">
+              <h2>Mock test natijalari</h2>
+              {!results.length && <div className="empty">Natija yoq</div>}
+              {results.map((r, i) => (
+                <div className="row" key={i}>
+                  <span className="muted">{r.completed_at ? new Date(r.completed_at).toLocaleDateString() : '—'}</span>
+                  <strong>{r.score ?? 0}/{r.max_score ?? 0}{r.percentage != null ? ` · ${r.percentage}%` : ''}</strong>
+                </div>
+              ))}
             </div>
+          )}
+        </main>
+
+        <nav className="bottom-nav" aria-label="Asosiy navigatsiya">
+          {tabs.map((t) => (
+            <button key={t.id} type="button" className={tab === t.id ? 'active' : ''} onClick={() => setTab(t.id)}>
+              <t.icon size={20} />
+              {t.label}
+            </button>
           ))}
-        </div>
-      )}
+        </nav>
+      </div>
+      <style>{`.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   );
 }
@@ -338,7 +315,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
-      <Route path="/" element={<Home />} />
+      <Route path="/" element={<HomeApp />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
