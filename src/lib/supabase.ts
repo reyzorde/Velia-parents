@@ -4,7 +4,7 @@ const url = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim();
 const key = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim();
 
 if (!url || !key) {
-  console.warn('[Velia Parents] .env da VITE_SUPABASE_URL va VITE_SUPABASE_ANON_KEY yozing');
+  console.warn('[Velia Parents] .env: VITE_SUPABASE_URL va VITE_SUPABASE_ANON_KEY');
 }
 
 export const supabase = createClient(
