@@ -1,6 +1,8 @@
-import { FormEvent, useCallback, useRef, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { Loader2, Moon, Sun } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import logoLight from '../assets/velia-logo.png';
+import logoDark from '../assets/velia-night-logo.png';
 import { clearStoredOtp, generateOtp, sendOtpEmail, verifyStoredOtp } from '../lib/otp';
 import { isConfigured, supabase } from '../lib/supabase';
 
@@ -9,13 +11,13 @@ type AuthStep = 'email' | 'otp' | 'password' | 'login';
 function authErrorMessage(err: { message?: string; status?: number } | null): string {
   const msg = (err?.message || '').toLowerCase();
   if (msg.includes('already') || msg.includes('registered') || err?.status === 422) {
-    return 'Bu email allaqachon royxatdan otgan. «Parol bilan kirish» orqali kiring.';
+    return 'Bu email allaqachon ro\'yxatdan o\'tgan. «Parol bilan kirish» orqali kiring.';
   }
   if (msg.includes('invalid login') || msg.includes('invalid credentials')) {
-    return 'Email yoki parol notogri. Avval kod bilan emailni tasdiqlab parol ornating.';
+    return 'Email yoki parol noto\'g\'ri. Avval kod bilan emailni tasdiqlab parol o\'rnating.';
   }
   if (msg.includes('rate limit') || msg.includes('email rate')) {
-    return 'Juda kop urinish. Bir daqiqadan keyin qayta urinib koring.';
+    return 'Juda ko\'p urinish. Bir daqiqadan keyin qayta urinib ko\'ring.';
   }
   return err?.message || 'Xatolik yuz berdi';
 }
@@ -30,8 +32,14 @@ export default function Login() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [info, setInfo] = useState('');
+  const [theme, setTheme] = useState(() => localStorage.getItem('velia_parents_theme') || 'dark');
   const otpRefs = useRef<Array<HTMLInputElement | null>>([]);
   const mail = email.trim().toLowerCase();
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('velia_parents_theme', theme);
+  }, [theme]);
 
   const sendCode = useCallback(
     async (e?: FormEvent) => {
@@ -43,7 +51,7 @@ export default function Login() {
         return;
       }
       if (!mail.includes('@')) {
-        setError('Email notogri');
+        setError('Email noto\'g\'ri');
         return;
       }
       setBusy(true);
@@ -70,12 +78,12 @@ export default function Login() {
       return;
     }
     if (!verifyStoredOtp(mail, otpCode)) {
-      setError('Kod notogri yoki muddati otgan');
+      setError('Kod noto\'g\'ri yoki muddati o\'tgan');
       return;
     }
     clearStoredOtp();
     setStep('password');
-    setInfo('Email tasdiqlandi. Endi parol ornating.');
+    setInfo('Email tasdiqlandi. Endi parol o\'rnating.');
   };
 
   const setPasswordAndEnter = async (e: FormEvent) => {
@@ -103,9 +111,7 @@ export default function Login() {
       });
       if (signErr) {
         if (signErr.status === 422 || /already|registered|exists|duplicate/i.test(signErr.message)) {
-          throw new Error(
-            'Bu email allaqachon bor. Togri parol bilan «Parol bilan kirish» ni bosing.'
-          );
+          throw new Error('Bu email allaqachon bor. To\'g\'ri parol bilan «Parol bilan kirish» ni bosing.');
         }
         throw new Error(authErrorMessage(signErr));
       }
@@ -115,9 +121,7 @@ export default function Login() {
       }
       const { error: after } = await supabase.auth.signInWithPassword({ email: mail, password });
       if (after) {
-        throw new Error(
-          'Hisob yaratildi, lekin sessiya ochilmadi. Supabase Confirm email ni OCHIRING, keyin «Parol bilan kirish».'
-        );
+        throw new Error('Hisob yaratildi. Supabase Confirm email ni OCHIRING, keyin kiring.');
       }
       nav('/', { replace: true });
     } catch (err) {
@@ -163,20 +167,29 @@ export default function Login() {
     <div className="auth">
       <div className="glass auth-card">
         <div className="brand">
-          <div className="brand-mark">V</div>
-          <div className="brand-name">Velia Parents</div>
+          <img src={theme === 'dark' ? logoDark : logoLight} alt="Velia" className="brand-logo" />
+          <div className="brand-name">Parents</div>
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            style={{ marginLeft: 'auto' }}
+            onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+            aria-label="Theme"
+          >
+            {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
         </div>
         <h1>
           {step === 'email' && 'Email'}
           {step === 'otp' && 'Kodni tasdiqlang'}
-          {step === 'password' && 'Parol ornating'}
+          {step === 'password' && 'Parol o\'rnating'}
           {step === 'login' && 'Kirish'}
         </h1>
         <p className="sub">
-          {step === 'email' && 'Avval emailga kod yuboriladi. Tasdiqlagach parol ornataiz.'}
+          {step === 'email' && 'Avval emailga kod yuboriladi. Tasdiqlagach parol o\'rnatasiz.'}
           {step === 'otp' && `${email} manziliga yuborilgan 6 xonali kod.`}
           {step === 'password' && 'Shu parol bilan keyin Parentsga kirasiz.'}
-          {step === 'login' && 'Parol ornatgan bolsangiz — email va parol bilan kiring.'}
+          {step === 'login' && 'Parol o\'rnatgan bo\'lsangiz — email va parol bilan kiring.'}
         </p>
         {error && <div className="error">{error}</div>}
         {info && !error && <p className="sub" style={{ color: 'var(--ok, #34d399)' }}>{info}</p>}
@@ -199,7 +212,7 @@ export default function Login() {
           <form onSubmit={checkOtp}>
             <div className="field">
               <label>Tasdiqlash kodi</label>
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div className="otp-row">
                 {Array.from({ length: 6 }).map((_, i) => (
                   <input
                     key={i}
@@ -211,10 +224,6 @@ export default function Login() {
                     onChange={(e) => updateOtpDigit(e.target.value, i)}
                     onKeyDown={(e) => {
                       if (e.key === 'Backspace' && !otpCode[i] && i > 0) otpRefs.current[i - 1]?.focus();
-                    }}
-                    style={{
-                      width: 44, height: 48, textAlign: 'center', fontSize: 18, fontWeight: 700,
-                      borderRadius: 12, border: '1px solid var(--border)', background: 'var(--glass-2)',
                     }}
                   />
                 ))}
@@ -257,7 +266,7 @@ export default function Login() {
               Kirish
             </button>
             <button className="btn btn-ghost" type="button" style={{ width: '100%', marginTop: 10 }} onClick={() => { setStep('email'); setError(''); }}>
-              Kod bilan parol ornatish
+              Kod bilan parol o\'rnatish
             </button>
           </form>
         )}
