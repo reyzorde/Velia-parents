@@ -1,4 +1,4 @@
-c:\Users\Ustoz\Downloads\velia-fixes\HomeApp.tsximport { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, Moon, Sun } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import logoLight from '../assets/velia-logo.png';
